@@ -1,0 +1,75 @@
+services:
+  ollama:
+    image: ollama/ollama
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # --- 核心修改：挂载 5060 显卡 ---
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # 增加健康检查，但简化逻辑
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mcp-filesystem:
+    build:
+      context: .
+      dockerfile: mcp/filesystem/Dockerfile
+    container_name: mcp-filesystem
+    volumes:
+      - ./workspace:/data
+
+  mcp-shell:
+    build:
+      context: .
+      dockerfile: mcp/shell/Dockerfile
+    container_name: mcp-shell
+    volumes:
+      - ./workspace:/workspace
+      - ./workspace:/data
+
+  mcp-tools:
+    build:
+      context: .
+      dockerfile: mcp/tools/Dockerfile
+    container_name: mcp-tools
+    environment:
+      - MCP_CONNECTION_TIMEOUT=60
+    volumes:
+      - ./workspace:/data
+
+  mcp-websearch:
+    build:
+      context: .
+      dockerfile: mcp/websearch/Dockerfile
+    container_name: mcp-websearch
+
+  app:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    container_name: langchain_app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=qwen3:4b
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+volumes:
+  ollama_data:
